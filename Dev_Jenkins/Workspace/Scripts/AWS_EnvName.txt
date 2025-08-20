@@ -1,0 +1,1 @@
+echo "From AWS/workspace/scripts/AWS_EnvName.txt file"
