@@ -1,0 +1,59 @@
+# Define target buckets for each region and corresponding policy files
+$TargetBuckets = @{
+    "us-east-1" = @{
+        "Bucket" = "otprds3accesslogginguse1";
+        "PolicyFile" = ".\bucket-logging-status-e1.json";
+    };
+    "us-east-2" = @{
+        "Bucket" = "otprds3accesslogginguse2";
+        "PolicyFile" = ".\bucket-logging-status-e2.json";
+    };
+}
+
+# Log message
+Write-Host "Enabling access logging for all S3 buckets in the account" -ForegroundColor Green
+
+# Get a list of all S3 buckets
+$Buckets = aws s3api list-buckets --query "Buckets[].Name" --output text | ForEach-Object { $_ -split "\s+" }
+
+# Iterate through each bucket
+foreach ($SourceBucket in $Buckets) {
+    Write-Host "Processing bucket: $SourceBucket" -ForegroundColor Yellow
+
+    # Skip target buckets to avoid recursive logging
+    if ($TargetBuckets.Values.Bucket -contains $SourceBucket) {
+        Write-Host "Skipping target bucket: $SourceBucket to prevent recursive logging" -ForegroundColor Red
+        continue
+    }
+
+    # Get the region of the current bucket
+    $Region = aws s3api get-bucket-location --bucket $SourceBucket --query "LocationConstraint" --output text
+    if ($Region -eq "None") {
+        $Region = "us-east-1"  # Buckets in us-east-1 return "None"
+    }
+
+    # Check if the region is supported
+    if ($TargetBuckets.ContainsKey($Region)) {
+        $TargetBucket = $TargetBuckets[$Region]["Bucket"]
+        $PolicyFile = $TargetBuckets[$Region]["PolicyFile"]
+        Write-Host "Using target bucket: $TargetBucket with policy file: $PolicyFile for region: $Region" -ForegroundColor Cyan
+    } else {
+        Write-Host "No target bucket configured for region: $Region. Skipping bucket: $SourceBucket" -ForegroundColor Red
+        continue
+    }
+
+    # Enable logging using AWS CLI and the region-specific policy file
+    Write-Host "Enabling logging for bucket: $SourceBucket using target bucket: $TargetBucket" -ForegroundColor Cyan
+    aws s3api put-bucket-logging `
+        --bucket $SourceBucket `
+        --bucket-logging-status file://$PolicyFile
+
+    # Check if the command succeeded
+    if ($LASTEXITCODE -eq 0) {
+        Write-Host "Access logging enabled successfully for bucket: $SourceBucket" -ForegroundColor Green
+    } else {
+        Write-Host "Failed to enable access logging for bucket: $SourceBucket" -ForegroundColor Red
+    }
+}
+
+Write-Host "Access logging configuration completed for all buckets" -ForegroundColor Green
